@@ -1,0 +1,43 @@
+# ── Environment variables — NEVER push these! ──
+.env
+.env.local
+.env.production
+*.env
+
+# ── Python virtual environment ──
+.venv
+venv
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+
+# ── Database ──
+*.db
+*.sqlite3
+
+# ── Node modules ──
+node_modules/
+
+# ── Build outputs ──
+dist/
+build/
+*.egg-info/
+
+# ── IDE ──
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ── OS files ──
+.DS_Store
+Thumbs.db
+
+# ── Logs ──
+*.log
+logs/
+
+# ── Poetry ──
+poetry.lock
