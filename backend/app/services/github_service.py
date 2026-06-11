@@ -38,7 +38,6 @@ class GitHubService:
                 logger.error("github_tree_failed", status=response.status_code)
                 return []
             data = response.json()
-            # Return only file paths, not directories
             return [
                 item["path"] for item in data.get("tree", [])
                 if item["type"] == "blob"
@@ -52,7 +51,6 @@ class GitHubService:
             if response.status_code != 200:
                 return f"Could not read {path}"
             data = response.json()
-            # GitHub returns content as base64
             content = base64.b64decode(data["content"]).decode("utf-8")
             return content
 
@@ -60,7 +58,6 @@ class GitHubService:
         """Read key files from repo — README, requirements, source code."""
         files = await self.get_file_tree(branch)
 
-        # Priority files to read
         priority_files = []
 
         # Always read README
@@ -73,18 +70,21 @@ class GitHubService:
             if f in ["requirements.txt", "pyproject.toml", "package.json"]:
                 priority_files.append(f)
 
-        # Read Python/JS source files (max 5)
+        # Read source files (max 5) — Python, JS, TS, Go, Java, etc
+        code_extensions = (".py", ".js", ".ts", ".go", ".java", ".rb", ".php", ".cs", ".cpp", ".c")
         code_files = [
             f for f in files
-            if f.endswith((".py", ".js", ".ts"))
-            and not f.startswith("test")
+            if f.endswith(code_extensions)
+            and not f.lower().startswith("test")
+            and "node_modules" not in f
+            and ".min." not in f
         ]
         priority_files.extend(code_files[:5])
 
         # Read test files (max 3)
         test_files = [
             f for f in files
-            if "test" in f.lower() and f.endswith((".py", ".js"))
+            if "test" in f.lower() and f.endswith(code_extensions)
         ]
         priority_files.extend(test_files[:3])
 
@@ -93,7 +93,6 @@ class GitHubService:
         result += f"Branch: {branch}\n"
         result += f"All files: {', '.join(files)}\n\n"
 
-        # Read each priority file
         for file_path in priority_files:
             content = await self.get_file_content(file_path, branch)
             result += f"\n{'='*50}\n"
@@ -111,6 +110,11 @@ class GitHubService:
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(url, headers=self.headers)
             if response.status_code != 200:
+                logger.error("branch_sha_failed",
+                            status=response.status_code,
+                            body=response.text,
+                            owner=self.owner,
+                            repo=self.repo)
                 return False
             sha = response.json()["object"]["sha"]
 
@@ -121,7 +125,16 @@ class GitHubService:
                 "sha": sha
             }
             response = await client.post(create_url, headers=self.headers, json=payload)
-            return response.status_code == 201
+            if response.status_code != 201:
+                logger.error("branch_creation_failed",
+                            status=response.status_code,
+                            body=response.text,
+                            branch=new_branch,
+                            owner=self.owner,
+                            repo=self.repo)
+                return False
+            logger.info("branch_created", branch=new_branch)
+            return True
 
     async def commit_file(
         self,
@@ -131,7 +144,6 @@ class GitHubService:
         message: str = "fix: automated bug fix by coding agent"
     ) -> bool:
         """Commit a file change to a branch."""
-        # Get current file SHA (needed for update)
         url = f"{self.base_url}/repos/{self.owner}/{self.repo}/contents/{file_path}"
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(
@@ -143,20 +155,25 @@ class GitHubService:
             if response.status_code == 200:
                 file_sha = response.json()["sha"]
 
-            # Encode content to base64
             encoded = base64.b64encode(content.encode()).decode()
 
-            # Commit the file
             payload = {
                 "message": message,
                 "content": encoded,
                 "branch": branch,
             }
             if file_sha:
-                payload["sha"] = file_sha  # required for updates
+                payload["sha"] = file_sha
 
             response = await client.put(url, headers=self.headers, json=payload)
-            return response.status_code in [200, 201]
+            if response.status_code not in [200, 201]:
+                logger.error("commit_failed",
+                            status=response.status_code,
+                            body=response.text,
+                            file_path=file_path)
+                return False
+            logger.info("file_committed", path=file_path)
+            return True
 
     async def create_pull_request(
         self,
@@ -179,5 +196,7 @@ class GitHubService:
                 pr_url = response.json()["html_url"]
                 logger.info("pr_created", pr_url=pr_url)
                 return pr_url
-            logger.error("pr_failed", status=response.status_code, body=response.text)
+            logger.error("pr_failed",
+                        status=response.status_code,
+                        body=response.text)
             return None
