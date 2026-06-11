@@ -71,11 +71,10 @@ async def run_agent(
 
             run = await db.get(Run, run_id)
             run.current_agent = node_name
-            run.steps_completed += len(current_log)
-
             current_log = json.loads(run.agent_log or "[]")
             current_log.append({"node": node_name})
             run.agent_log = json.dumps(current_log)
+            run.steps_completed = len(current_log)
             await db.commit()
 
         # Mark completed
