@@ -291,8 +291,25 @@ async def create_pr_node(state: AgentState) -> dict:
 def _parse_files_from_coder(fix_code: str) -> dict[str, str]:
     """Parse coder output into {filename: content} dict."""
     files = {}
-    pattern = r"FILE:\s*(\S+)\s*```(?:\w+)?\s*(.*?)```"
-    matches = re.findall(pattern, fix_code, re.DOTALL)
+
+    # Pattern 1: FILE: filename.ext followed by ```code```
+    pattern1 = r"FILE:\s*(\S+)\s*```(?:\w+)?\s*(.*?)```"
+    matches = re.findall(pattern1, fix_code, re.DOTALL)
     for file_path, content in matches:
         files[file_path.strip()] = content.strip()
+
+    # Pattern 2: **filename.ext** followed by ```code```
+    if not files:
+        pattern2 = r"\*\*(\S+\.\w+)\*\*\s*```(?:\w+)?\s*(.*?)```"
+        matches = re.findall(pattern2, fix_code, re.DOTALL)
+        for file_path, content in matches:
+            files[file_path.strip()] = content.strip()
+
+    # Pattern 3: filename in comment inside code block
+    if not files:
+        pattern3 = r"```(?:\w+)?\s*\n(?:#|//|--)\s*(\S+\.\w+)\n(.*?)```"
+        matches = re.findall(pattern3, fix_code, re.DOTALL)
+        for file_path, content in matches:
+            files[file_path.strip()] = content.strip()
+
     return files
