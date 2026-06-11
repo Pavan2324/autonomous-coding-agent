@@ -292,24 +292,50 @@ def _parse_files_from_coder(fix_code: str) -> dict[str, str]:
     """Parse coder output into {filename: content} dict."""
     files = {}
 
-    # Pattern 1: FILE: filename.ext followed by ```code```
+    # Pattern 1: FILE: filename followed by ```code```
     pattern1 = r"FILE:\s*(\S+)\s*```(?:\w+)?\s*(.*?)```"
     matches = re.findall(pattern1, fix_code, re.DOTALL)
     for file_path, content in matches:
         files[file_path.strip()] = content.strip()
 
-    # Pattern 2: **filename.ext** followed by ```code```
-    if not files:
-        pattern2 = r"\*\*(\S+\.\w+)\*\*\s*```(?:\w+)?\s*(.*?)```"
-        matches = re.findall(pattern2, fix_code, re.DOTALL)
-        for file_path, content in matches:
-            files[file_path.strip()] = content.strip()
+    if files:
+        return files
 
-    # Pattern 3: filename in comment inside code block
-    if not files:
-        pattern3 = r"```(?:\w+)?\s*\n(?:#|//|--)\s*(\S+\.\w+)\n(.*?)```"
-        matches = re.findall(pattern3, fix_code, re.DOTALL)
-        for file_path, content in matches:
-            files[file_path.strip()] = content.strip()
+    # Pattern 2: **filename** followed by ```code```
+    pattern2 = r"\*\*([^\*]+\.\w+)\*\*\s*```(?:\w+)?\s*(.*?)```"
+    matches = re.findall(pattern2, fix_code, re.DOTALL)
+    for file_path, content in matches:
+        files[file_path.strip()] = content.strip()
+
+    if files:
+        return files
+
+    # Pattern 3: `filename` followed by ```code```
+    pattern3 = r"`([^`]+\.\w+)`[^\n]*\n```(?:\w+)?\s*(.*?)```"
+    matches = re.findall(pattern3, fix_code, re.DOTALL)
+    for file_path, content in matches:
+        files[file_path.strip()] = content.strip()
+
+    if files:
+        return files
+
+    # Pattern 4: just grab ALL code blocks and use first filename found
+    pattern4 = r"```(?:\w+)?\s*(.*?)```"
+    code_blocks = re.findall(pattern4, fix_code, re.DOTALL)
+
+    # Find filename near each code block
+    filename_pattern = r"(\w[\w/\-\.]+\.\w+)"
+    all_filenames = re.findall(filename_pattern, fix_code)
+    code_filenames = [f for f in all_filenames
+                      if "." in f
+                      and not f.startswith("http")
+                      and len(f) < 50]
+
+    if code_blocks and code_filenames:
+        for i, block in enumerate(code_blocks):
+            if i < len(code_filenames):
+                files[code_filenames[i]] = block.strip()
+            else:
+                files[f"fix_{i}.py"] = block.strip()
 
     return files
